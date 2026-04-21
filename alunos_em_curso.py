@@ -64,28 +64,30 @@ pasta = os.path.dirname(caminho_saida)
 # cria se não existir
 os.makedirs(pasta, exist_ok=True)
 
-with pd.ExcelWriter(caminho_saida) as w:
+with pd.ExcelWriter(caminho_saida, engine='xlsxwriter') as w:
     for turma in turmas:
         df_saida = meus_alunos[meus_alunos['turma'] == turma]
         df_saida = df_saida[['numero', 'nome']]
         
-        df_saida.to_excel(
-            w, 
-            sheet_name=turma, 
-            index=False
-        )
+        df_saida.to_excel(w, sheet_name=turma, index=False)
 
         worksheet = w.sheets[turma]
 
-        for i, coluna in enumerate(df_saida.columns):
-            tamanho_max = max(
-                df_saida[coluna].astype(str).map(len).max(),
-                len(coluna)
+        for i, col in enumerate(df_saida.columns):
+            series = df_saida[col].astype(str)
+            
+            max_len = max(
+                series.map(len).max(),
+                len(col)
             )
-            col_letter = chr(65 + i)  # A, B, C...
-            worksheet.column_dimensions[col_letter].width = tamanho_max + 2
+
+            # ajuste fino (esse é o segredo)
+            largura = max_len * 1.2 + 2
+            
+            worksheet.set_column(i, i, largura)
             
 
 print('programa executado com sucesso')
 print('sua planilha está na pasta output com nome alunos_em_curso.xlsx')
-print('clique com botão direito e faça o download')
+print('entre na pasta e clique com botão direito e faça o download')
+
