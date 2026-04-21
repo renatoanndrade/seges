@@ -70,9 +70,15 @@ with pd.ExcelWriter(caminho_saida) as w:
         df_saida.to_excel(
             w, 
             sheet_name=turma, 
-            freeze_panes=(1, 2), 
             index=False
-            )
+        )
 
         worksheet = w.sheets[turma]
-        worksheet.autofit()
+
+        for i, coluna in enumerate(df_saida.columns):
+            tamanho_max = max(
+                df_saida[coluna].astype(str).map(len).max(),
+                len(coluna)
+            )
+            col_letter = chr(65 + i)  # A, B, C...
+            worksheet.column_dimensions[col_letter].width = tamanho_max + 2
