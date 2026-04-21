@@ -26,6 +26,8 @@ if "sign_in" in resp.url.lower():
     print('Errou a senha ou o login, tente de novo.')
 else:
     print("✅ Logado")
+
+print('Aguarde fazer o download das informações!')
     
 etapa = 0 # significa que é o trimestre (0-1ºTrimestre, 1-2ºTrimestre...)
 seges = sg(session_logada, etapa, base_url)
@@ -82,3 +84,8 @@ with pd.ExcelWriter(caminho_saida) as w:
             )
             col_letter = chr(65 + i)  # A, B, C...
             worksheet.column_dimensions[col_letter].width = tamanho_max + 2
+            
+
+print('programa executado com sucesso')
+print('sua planilha está na pasta output com nome alunos_em_curso.xlsx')
+print('clique com botão direito e faça o download')
