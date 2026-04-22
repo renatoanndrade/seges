@@ -197,15 +197,14 @@ class Seges:
             data = resp.json()
 
             for aluno in data["group_students"]:
-                if aluno["status"] != "active":
-                    continue
 
                 resultados.append({
                     "turma": data["classroom"]["name"],
                     "classroom_id": data["classroom"]["id"],
-                    "aluno_id": aluno["id"],
-                    "numero": aluno["number"],
-                    "nome": aluno["name"]
+                    "aluno_id": aluno.get("id"),
+                    "numero": aluno.get("number"),
+                    "nome": aluno.get("name"),
+                    "condicao": aluno.get("status")
                 })
 
         df = pd.DataFrame(resultados)

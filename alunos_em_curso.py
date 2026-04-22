@@ -88,6 +88,6 @@ with pd.ExcelWriter(caminho_saida, engine='xlsxwriter') as w:
             
 
 print('programa executado com sucesso')
-print('sua planilha está na pasta output com nome alunos_em_curso.xlsx')
+print('sua planilha está na pasta output com nome alunos_ativos.xlsx')
 print('entre na pasta e clique com botão direito e faça o download')
 
