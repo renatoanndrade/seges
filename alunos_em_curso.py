@@ -3,8 +3,10 @@ from request_seges import Login
 from urllib.parse import urlparse
 import urllib3
 
-from getpass import getpass
+import pandas as pd
+import os
 
+from getpass import getpass
 import requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -39,12 +41,7 @@ lancar_notas = seges.get_minhas_turmas(url_avaliacoes)
 # pega minhas notas
 listagem_avaliacao = seges.get_links_minhas_notas(lancar_notas['href'])
 listagem_avaliacao.tail()
-'''
-output
-classroom é a turma
-discipline_id é o tipo de diciplina
-stage_id é o código do trimestre
-'''
+
 
 minhas_turmas = (listagem_avaliacao.drop_duplicates(subset='classroom_id').reset_index(drop=True))
 meus_alunos = seges.get_alunos_por_turma(minhas_turmas['href'].to_list())
@@ -55,8 +52,6 @@ notas = seges.get_notas(listagem_avaliacao['href'])
 
 turmas = meus_alunos['turma'].unique()
 
-import pandas as pd
-import os
 
 caminho_saida = 'output/alunos_ativos.xlsx'
 # pega só a pasta
