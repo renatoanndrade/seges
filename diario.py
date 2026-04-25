@@ -160,4 +160,4 @@ with pd.ExcelWriter(caminho_saida, engine='xlsxwriter') as w:
             worksheet.set_column(col_num, col_num, max_len + 2)
     
 print('diário salvo com sucesso')
-print('abra a pasta output, vai está o arquivo excel lá.')
+print('abra a pasta output, vai está o arquivo excel vai está lá.')
