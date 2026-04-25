@@ -12,8 +12,8 @@ import os
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-usuario = '10631094776'
-senha = '10631094776'
+usuario = getpass('insira seu usuário')
+senha = getpass('insira sua senha')
 
 
 etapa = 0 # significa que é o trimestre (0 = 1ºTrimestre, 1 = 2ºTrimestre e 2 = 3º Trimestre)
