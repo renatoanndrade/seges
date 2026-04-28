@@ -196,21 +196,38 @@ class Seges:
 
             data = resp.json()
 
-            for aluno in data["group_students"]:
+            turma = data.get("classroom", {})
+            disciplina = data.get("curriculum_discipline", {})
 
-                resultados.append({
-                    "turma": data["classroom"]["name"],
-                    "classroom_id": data["classroom"]["id"],
-                    "aluno_id": aluno.get("id"),
-                    "numero": aluno.get("number"),
-                    "nome": aluno.get("name"),
-                    "condicao": aluno.get("status")
-                })
+            alunos = data.get("group_students", [])
+            avaliacoes = data.get("classroom_evaluations", [])
+
+            # 🔥 aluno × avaliação (ESSA É A CHAVE)
+            for aluno in alunos:
+                for av in avaliacoes:
+
+                    resultados.append({
+                        "turma": turma.get("name"),
+                        "classroom_id": turma.get("id"),
+                        "discipline_id": disciplina.get("id"),
+
+                        "aluno_id": aluno.get("id"),
+                        "numero": aluno.get("number"),
+                        "nome": aluno.get("name"),
+                        "condicao": aluno.get("status"),
+                        "classroom_evaluation_id": av.get("id"),   # ✅ sempre existe
+                        "avaliacao_nome": av.get("name")           # ✅ sempre existe
+                    })
 
         df = pd.DataFrame(resultados)
 
         return df.drop_duplicates(
-            subset=["classroom_id", "aluno_id"]
+            subset=[
+                "classroom_id",
+                "aluno_id",
+                "discipline_id",
+                "classroom_evaluation_id"
+            ]
         ).reset_index(drop=True)
 
     def get_notas(self, links):
@@ -367,93 +384,177 @@ class Seges:
         return payload
 
 
-    def alterar_nota(self, payload):
+    def alterar_notas(self, payloads):
+        respostas = []
 
-        # =========================
-        # 🔹 GERAR REFERER (interno)
-        # =========================
-        def gerar_referer():
-            return (
-                f"{self.base_url}/grades?"
-                f"classroom_id={payload['classroom_id']}"
-                f"&curriculum_discipline_id={payload['curriculum_discipline_id']}"
-                f"&stage_id={payload['stage_id']}"
-            )
+        for payload in payloads:
 
-        referer = gerar_referer()
-
-        # =========================
-        # 🔹 CSRF
-        # =========================
-        csrf = self._get_csrf_token(referer)
-
-        # =========================
-        # 🔹 HEADERS
-        # =========================
-        headers = {
-            "Content-Type": "application/json",
-            "Origin": self.base_url,
-            "Referer": referer,
-            "X-CSRF-Token": csrf,
-            "User-Agent": "Mozilla/5.0"
-        }
-
-        # =========================
-        # 🔹 REQUEST
-        # =========================
-        resp = self.session.post(
-            f"{self.base_url}/grades/grade.json",
-            json=payload,
-            headers=headers,
-            verify=False
-        )
-
-        # =========================
-        # 🔥 TRATAMENTO
-        # =========================
-        if resp.status_code != 200:
-            raise Exception(f"Erro ao enviar nota: {resp.status_code} - {resp.text}")
-
-        print(f"Aluno ID: {payload['group_student_id']}")
-        print("Status:", resp.status_code)
-
-        return resp
-    
-    
-    
-    
-    
-    def exportar_alunos_ativos(self, links_turmas, caminho_saida):
-        urllib3.disable_warnings()
-
-        with pd.ExcelWriter(caminho_saida) as w:
-
-            for url in links_turmas:   
-
-                cookies = {
-                    c['name']: c['value'] 
-                    for c in self.nami.get_cookies()
-                }
-
-                data = requests.get(
-                    url, 
-                    cookies=cookies, 
-                    verify=False
-                ).json()
-
-                sheet = data["classroom"]["name"]
-
-                df = pd.DataFrame(data["group_students"])
-
-                df = df[df["status_humanize"] == "Em curso"][["number", "name"]]
-                df.columns = ['numero', 'NOME']
-
-                df.to_excel(
-                    w, 
-                    sheet_name=sheet, 
-                    freeze_panes=(1, 2), 
-                    index=False
+            # 🔹 GERAR REFERER
+            def gerar_referer(p):
+                return (
+                    f"{self.base_url}/grades?"
+                    f"classroom_id={p['classroom_id']}"
+                    f"&curriculum_discipline_id={p['curriculum_discipline_id']}"
+                    f"&stage_id={p['stage_id']}"
                 )
 
-                worksheet = w.sheets[sheet]
-                worksheet.autofit()
+            referer = gerar_referer(payload)
+
+            # 🔹 CSRF
+            csrf = self._get_csrf_token(referer)
+
+            # 🔹 HEADERS
+            headers = {
+                "Content-Type": "application/json",
+                "Origin": self.base_url,
+                "Referer": referer,
+                "X-CSRF-Token": csrf,
+                "User-Agent": "Mozilla/5.0"
+            }
+
+            try:
+                # 🔹 REQUEST
+                resp = self.session.post(
+                    f"{self.base_url}/grades/grade.json",
+                    json=payload,
+                    headers=headers,
+                    verify=False
+                )
+
+                if resp.status_code != 200:
+                    raise Exception(resp.text)
+
+                respostas.append({
+                    "student_id": payload["group_student_id"],
+                    "status": resp.status_code
+                })
+
+            except Exception as e:
+                respostas.append({
+                    "student_id": payload.get("group_student_id"),
+                    "error": str(e)
+                })
+
+        #return respostas
+    
+
+    # limpeza dos nomes
+    def get_nome_limpo(caminho):
+        import pandas as pd
+        import unicodedata
+        # ========= FUNÇÃO PRA LIMPAR NOME =========
+        def limpar_nome(nome):
+            if pd.isna(nome):
+                return None
+            nome = str(nome).strip().upper()
+            return unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('ASCII')
+
+
+        # ========= CAMINHO DO ARQUIVO =========
+        
+
+        # ========= LER TODAS AS SHEETS =========
+        dfs = pd.read_excel(caminho, sheet_name=None)
+
+        lista_dfs = []
+
+        # ========= LOOP NAS ABAS =========
+        for nome_aba, df in dfs.items():
+            try:
+                # Garantir cópia
+                df = df.copy()
+
+                # Pegar até 4 colunas
+                df = df.iloc[:, :4]
+
+                # Detectar número de colunas
+                n_cols = df.shape[1]
+
+                if n_cols == 4:
+                    df.columns = ["id", "nome", "nota_1", "nota_2"]
+                elif n_cols == 3:
+                    df.columns = ["id", "nome", "nota_1"]
+                    df["nota_2"] = None
+                else:
+                    print(f"Aba {nome_aba} ignorada (colunas insuficientes)")
+                    continue
+
+                # ========= LIMPEZA =========
+                df["nome"] = df["nome"].apply(limpar_nome)
+
+                df["nota_1"] = pd.to_numeric(df["nota_1"], errors="coerce")
+                df["nota_2"] = pd.to_numeric(df["nota_2"], errors="coerce")
+
+                # ========= REGRA DE NEGÓCIO =========
+                df["nota_final"] = df[["nota_1", "nota_2"]].max(axis=1)
+
+                # ========= GUARDAR TURMA DA SHEET =========
+                df["turma_sheet"] = nome_aba
+
+                # ========= LIMPEZA FINAL =========
+                df = df.dropna(subset=["nome"])
+
+                # ========= SELECIONAR COLUNAS =========
+                lista_dfs.append(df[["nome", "nota_final", "turma_sheet"]])
+
+            except Exception as e:
+                print(f"Erro na aba {nome_aba}: {e}")
+
+
+        # ========= CONCATENAR =========
+        if lista_dfs:
+            df_suja = pd.concat(lista_dfs, ignore_index=True)
+        else:
+            df_suja = pd.DataFrame(columns=["nome", "nota_final", "turma_sheet"])
+            
+        return df_suja
+    
+    def escolher_atividade(lista_atividades):
+        import tkinter as tk
+        opcoes = sorted(lista_atividades['atividade_nome'].dropna().unique())
+        root = tk.Tk()
+        # 🔥 força ficar na frente
+        root.lift()
+        root.attributes("-topmost", True)
+        root.after(100, lambda: root.attributes("-topmost", False))
+        var = tk.StringVar(value=opcoes[0] if opcoes else "")
+        def confirmar():
+            root.destroy()
+        for opcao in opcoes:
+            tk.Radiobutton(root, text=opcao, variable=var, value=opcao).pack(anchor="w")
+        tk.Button(root, text="OK", command=confirmar).pack(pady=10)
+        root.mainloop()        
+        return var.get()
+    
+    def set_payloads(stage_id, dataframe):
+        payloads = []
+        for _, row in dataframe.iterrows():
+
+            nota = row["nota_final"]
+
+            # 🔥 regra principal
+            if pd.isna(nota):
+                number = None
+                unevaluated = True
+            else:
+                number = float(nota)
+                unevaluated = False
+
+            payload = {
+                "classroom_evaluation_id": int(row["classroom_evaluation_id"]),
+                "classroom_id": int(row["classroom_id"]),
+                "curriculum_discipline_id": int(row["discipline_id"]),
+                "group_student_id": int(row["aluno_id"]),
+
+                "letter_id": None,
+
+                "number": number,
+                "recovery": None,
+
+                "recovery_unevaluated": False,
+                "stage_id": stage_id,  # ⚠️ ajuste se precisar (ou puxa do dataset)
+                "unevaluated": unevaluated
+            }
+
+            payloads.append(payload)
+        return payloads

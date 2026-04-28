@@ -1,50 +1,31 @@
+#Pega os dados do seges
 from request_seges import Seges as sg
 from request_seges import Login
 from urllib.parse import urlparse
 import urllib3
 
-from getpass import getpass
-
 import requests
-import pandas as pd
-import os
-
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-usuario = getpass('insira seu usuário')
-senha = getpass('insira sua senha')
-
-
-etapa = 0 # significa que é o trimestre (0 = 1ºTrimestre, 1 = 2ºTrimestre e 2 = 3º Trimestre)
-
-# urls digitadas
-login = Login("https://seges.sedu.es.gov.br")
-url_avaliacoes = 'https://seges.sedu.es.gov.br/avaliacao_modo_avancados/turmas'
-
 session = requests.Session()
+usuario = '10631094776'
+etapa = 0 # significa que é o trimestre (0-1ºTrimestre, 1-2ºTrimestre...)
+senha = usuario
+
+
+login = Login("https://seges.sedu.es.gov.br")
 
 session_logada, base_url = login.autenticar(usuario, senha)
-resp = session_logada.get(url_avaliacoes, verify=False)
-
-if "sign_in" in resp.url.lower():
-    print("❌ Não logado")
-    print('Errou a senha ou o login, tente de novo.')
-else:
-    print("✅ Logado")
-    
-    
-
 seges = sg(session_logada, etapa, base_url)
 
 # pega links das turmas
 url = 'https://seges.sedu.es.gov.br/avaliacao_modo_avancados/turmas'
-lancar_notas = seges.get_minhas_turmas(url_avaliacoes)
+lancar_notas = seges.get_minhas_turmas(url)
 
 # pega minhas notas
 listagem_avaliacao = seges.get_links_minhas_notas(lancar_notas['href'])
 listagem_avaliacao.tail()
-
 '''
 output
 classroom é a turma
@@ -52,67 +33,59 @@ discipline_id é o tipo de diciplina
 stage_id é o código do trimestre
 '''
 
-minhas_turmas = (listagem_avaliacao.drop_duplicates(subset='classroom_id').reset_index(drop=True))
-meus_alunos = seges.get_alunos_por_turma(minhas_turmas['href'].to_list())
+minhas_turmas = (listagem_avaliacao.drop_duplicates(subset='classroom_id').reset_index(drop=True)) # só serve para pegar o nome dos alunos e fim
+meus_alunos = seges.get_alunos_por_turma(listagem_avaliacao['href'].to_list())
 minhas_avaliacoes = seges.get_avaliacoes(listagem_avaliacao['href'])
 listagem_avaliacao["classroom_id"] = listagem_avaliacao["classroom_id"].astype(int)
 
 notas = seges.get_notas(listagem_avaliacao['href'])
 
-df1 = []
-df_notas = notas.copy()
-df1 = df_notas.merge(
+df = notas.copy()
+
+df = df.merge(
     meus_alunos,
-    on=["turma", "classroom_id", "aluno_id"],
-    how="left"
-)
-df1 = df1.merge(
-    listagem_avaliacao,
-    on=["turma", "classroom_id"],
+    on=["turma", "classroom_id", "aluno_id", "classroom_evaluation_id"],
     how="left"
 )
 
-df1 = df1.merge(
+df = df.merge(
     minhas_avaliacoes,
-    on=["classroom_evaluation_id" ,'turma'],
+    on=["turma", "classroom_evaluation_id"],
     how="left"
 )
 
-df1 = df1[df1["disciplina"] != "ELETIVAS"]
+df["discipline_id"] = df["discipline_id"].astype(int)
+listagem_avaliacao["discipline_id"] = listagem_avaliacao["discipline_id"].astype(int)
 
-df1["result"] = df1[["number", "recovery"]].max(axis=1)
+df = df.merge(
+    listagem_avaliacao,
+    on=["turma", "classroom_id", "discipline_id"],
+    how="left"
+)
 
 
-turmas = df1['turma'].unique()
+df['result']= df[['number', 'recovery']].max(axis=1)
 
-import pandas as pd
 import os
+import pandas as pd
+with pd.ExcelWriter("output/diario.xlsx", engine="xlsxwriter") as writer:
 
-caminho_saida = 'output/diario.xlsx'
+    for turma in df["turma"].dropna().unique():
 
-pasta = os.path.dirname(caminho_saida)
-os.makedirs(pasta, exist_ok=True)
+        df_turma = df[df["turma"] == turma].copy()
 
-with pd.ExcelWriter(caminho_saida, engine='xlsxwriter') as w:
-
-    for turma in turmas:
-        # =========================
-        # FILTRA A TURMA
-        # =========================
-        df_turma = df1[df1['turma'] == turma].copy()
+        # garante nomes limpos de sheet (limite Excel = 31 chars)
+        sheet_name = str(turma)[:31]
 
         # =========================
-        # CRIA CHAVE DA COLUNA (ANTI-CONFLITO)
+        # pivot: aluno x avaliação
         # =========================
         df_turma["atividade_coluna"] = (
-            df_turma["atividade_nome"].astype(str) +
+            df_turma["avaliacao_nome"].astype(str) +
             " - " +
             df_turma["disciplina"].astype(str)
         )
 
-        # =========================
-        # PIVOT (ATIVIDADES → COLUNAS)
-        # =========================
         df_pivot = df_turma.pivot_table(
             index=["numero", "nome"],
             columns="atividade_coluna",
@@ -120,44 +93,22 @@ with pd.ExcelWriter(caminho_saida, engine='xlsxwriter') as w:
             aggfunc="max"
         ).reset_index()
 
-        # =========================
-        # REMOVE COLUNAS VAZIAS
-        # =========================
+        # remove colunas vazias
         df_pivot = df_pivot.dropna(axis=1, how="all")
 
-        # =========================
-        # ORGANIZAR COLUNAS
-        # =========================
-        colunas_fixas = ["numero", "nome"]
-        colunas_atividades = [c for c in df_pivot.columns if c not in colunas_fixas]
+        # ordena colunas
+        fixas = ["numero", "nome"]
+        cols = [c for c in df_pivot.columns if c not in fixas]
 
-        df_pivot = df_pivot[colunas_fixas + sorted(colunas_atividades)]
+        df_pivot = df_pivot[fixas + sorted(cols)]
 
-        # =========================
-        # EXPORTA
-        # =========================
-        sheet_name = turma[:31]
+        # exporta
+        df_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
 
-        df_pivot.to_excel(
-            w,
-            sheet_name=sheet_name,
-            index=False
-        )
+        # ajuste automático de largura
+        worksheet = writer.sheets[sheet_name]
+        worksheet.freeze_panes(1, 2)
 
-        worksheet = w.sheets[sheet_name]
-
-        # =========================
-        # AUTOFIT (SEGURO)
-        # =========================
-        for col_num in range(len(df_pivot.columns)):
-            col_data = df_pivot.iloc[:, col_num]
-
-            max_len = max(
-                col_data.astype(str).map(len).max(),
-                len(str(df_pivot.columns[col_num]))
-            )
-
-            worksheet.set_column(col_num, col_num, max_len + 2)
-    
-print('diário salvo com sucesso')
-print('abra a pasta output, vai está o arquivo excel vai está lá.')
+        for i, col in enumerate(df_pivot.columns):
+            max_len = max(df_pivot[col].fillna("").astype(str).str.len().max(), len(str(col)))
+            worksheet.set_column(i, i, max_len + 2)
